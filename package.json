@@ -1,0 +1,14 @@
+{
+  "name": "priority-wizards-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server providing access to Priority ERP wizard help content (CHM-extracted HTML wizards)",
+  "type": "commonjs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node src/test.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.3"
+  }
+}
