@@ -44,6 +44,9 @@ Both were decompiled using `hh.exe -decompile` into:
 | `wizard://toc` | Full TOC (all wizards, both languages) |
 | `wizard://toc/hebrew` | Hebrew wizard TOC |
 | `wizard://toc/english` | English wizard TOC |
+| `wizard://entity-map` | Entity-to-wizard mapping for Priority ERP forms |
+| `wizard://read/{filename}` | Full wizard content by start page (e.g. `wizard://read/81000.htm`) |
+| `wizard://{filename}` | Short form of the above |
 
 ### Tools
 

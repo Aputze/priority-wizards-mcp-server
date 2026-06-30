@@ -19,12 +19,13 @@ const {
   ListToolsRequestSchema,
   CallToolRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema
 } = require('@modelcontextprotocol/sdk/types.js');
 
 const path = require('path');
 const { parseToc, buildWizardList } = require('./wizard-toc-parser');
-const { readPage, getWizardText, searchWizards } = require('./wizard-content-reader');
+const { readPage, searchWizards } = require('./wizard-content-reader');
 
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
@@ -46,14 +47,19 @@ const allWizards = [...heWizards, ...enWizards];
 console.error(`[Wizards MCP] Loaded ${heWizards.length} Hebrew + ${enWizards.length} English = ${allWizards.length} total wizards`);
 
 // Build lookups
+// English wizards loaded FIRST so ENTITY_WIZARD_MAP (built from English wizards) takes priority on filename collisions
 const wizByFile = new Map(); // filename_lower → wizard (dedup dirs)
-for (const w of heWizards) {
-  const key = path.basename(w.pages[0]?.file || '').toLowerCase();
-  if (!wizByFile.has(key)) wizByFile.set(key, w);
-}
 for (const w of enWizards) {
   const key = path.basename(w.pages[0]?.file || '').toLowerCase();
   if (!wizByFile.has(key)) wizByFile.set(key, w);
+}
+for (const w of heWizards) {
+  const key = path.basename(w.pages[0]?.file || '').toLowerCase();
+  if (wizByFile.has(key)) {
+    console.error(`[Wizards MCP] Collision: Hebrew wizard "${w.title}" (${key}) shadowed by English wizard`);
+  } else {
+    wizByFile.set(key, w);
+  }
 }
 
 // ─── Entity-to-Wizard Map ────────────────────────────────────────
@@ -171,6 +177,27 @@ const server = new Server({
 // ─── Resources ───────────────────────────────────────────────────
 const RESOURCE_URI_PREFIX = 'wizard://';
 
+/** Extract start filename from wizard:// or wizard://read/ URIs */
+function parseWizardResourceUri(uri) {
+  const match = uri.match(/^wizard:\/\/(?:read\/)?(.+)$/i);
+  if (!match) return null;
+  const pathPart = match[1];
+  // wizard://{startFile}/{page} — page reads not implemented; use start file only
+  const startFile = pathPart.split('/')[0];
+  return startFile.toLowerCase();
+}
+
+function wizardResourceUri(filename) {
+  return `wizard://read/${filename}`;
+}
+
+function readWizardByStartFile(startFileKey) {
+  const wiz = wizByFile.get(startFileKey);
+  if (!wiz) return null;
+  const baseDir = heWizards.includes(wiz) ? CONFIG.hebrewDir : CONFIG.englishDir;
+  return { wiz, baseDir, text: formatWizardText(wiz, baseDir) };
+}
+
 server.setRequestHandler(ListResourcesRequestSchema, async () => ({
   resources: [
     {
@@ -196,6 +223,23 @@ server.setRequestHandler(ListResourcesRequestSchema, async () => ({
       name: 'Entity-to-Wizard Map',
       description: 'Maps 88 Priority ERP entities to their relevant wizard documentation with context',
       mimeType: 'application/json'
+    }
+  ]
+}));
+
+server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => ({
+  resourceTemplates: [
+    {
+      uriTemplate: 'wizard://read/{filename}',
+      name: 'Wizard by filename',
+      description: 'Full wizard documentation by start page filename (e.g. 81000.htm for Purchase Orders). Prefer wizard_get tool when available.',
+      mimeType: 'text/plain'
+    },
+    {
+      uriTemplate: 'wizard://{filename}',
+      name: 'Wizard by filename (short form)',
+      description: 'Same as wizard://read/{filename}',
+      mimeType: 'text/plain'
     }
   ]
 }));
@@ -265,22 +309,18 @@ server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     };
   }
   
-  // wizard://{startFile} — get wizard by its start page filename
-  const startFileMatch = uri.match(/^wizard:\/\/(.+)/);
-  if (startFileMatch) {
-    const key = startFileMatch[1].toLowerCase();
-    const wiz = wizByFile.get(key);
-    if (!wiz) {
-      throw new Error(`Wizard not found: ${key}. Use wizard://toc to see available wizards.`);
+  // wizard://read/{startFile} or wizard://{startFile}
+  const startFileKey = parseWizardResourceUri(uri);
+  if (startFileKey) {
+    const result = readWizardByStartFile(startFileKey);
+    if (!result) {
+      throw new Error(`Wizard not found: ${startFileKey}. Use wizard://toc or wizard_list to see available wizards.`);
     }
-    const content = getWizardText(wiz, 
-      wiz === heWizards.find(w => w.title === wiz.title) ? CONFIG.hebrewDir : CONFIG.englishDir
-    );
     return {
       contents: [{
         uri,
         mimeType: 'text/plain',
-        text: formatWizardText(wiz, CONFIG.hebrewDir)
+        text: result.text
       }]
     };
   }
@@ -467,7 +507,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
               context: match.context
             },
             fullContentAvailable: !!wizardWiz,
-            getFullContent: `Use wizard_get(identifier: "${match.title}", language: "en") to read the full wizard documentation`
+            resourceUri: wizardResourceUri(match.file),
+            getFullContent: `Use wizard_get(identifier: "${match.file}") or read resource ${wizardResourceUri(match.file)}`
           }, null, 2)
         }]
       };
@@ -498,16 +539,11 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         throw new Error(`Wizard not found: "${identifier}". Use wizard_list to see available wizards.`);
       }
       
-      const content = getWizardText(wizard, 
-        heWizards.includes(wizard) ? CONFIG.hebrewDir : CONFIG.englishDir
-      );
-      
+      const baseDir = heWizards.includes(wizard) ? CONFIG.hebrewDir : CONFIG.englishDir;
       return {
         content: [{
           type: 'text',
-          text: formatWizardText(wizard, 
-            heWizards.includes(wizard) ? CONFIG.hebrewDir : CONFIG.englishDir
-          )
+          text: formatWizardText(wizard, baseDir)
         }]
       };
     }

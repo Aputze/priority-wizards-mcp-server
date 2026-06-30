@@ -108,6 +108,12 @@ async function main() {
     const get2 = await sendRequest('tools/call', { name: 'wizard_get', arguments: { identifier: '68000.htm' } });
     console.log(`\nwizard_get("68000.htm"): ${get2.result.content[0].text.split('\n')[0]}`);
 
+    // wizard://read/{filename} resource URIs (procurement entities)
+    for (const uri of ['wizard://read/81000.htm', 'wizard://read/51030.htm', 'wizard://read/70003.htm']) {
+      const res = await sendRequest('resources/read', { uri });
+      console.log(`\nresources/read(${uri}): ${res.result.contents[0].text.split('\n')[0]}`);
+    }
+
     console.log('\n✅ All tests passed!');
   } catch (err) {
     console.error('❌ Failed:', err.message);
