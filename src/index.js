@@ -25,16 +25,16 @@ const {
 
 const path = require('path');
 const { parseToc, buildWizardList } = require('./wizard-toc-parser');
-const { readPage, searchWizards } = require('./wizard-content-reader');
+const { readPage, searchWizards, searchWizardsHebrew, hasHebrew } = require('./wizard-content-reader');
 
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
-  // Hebrew wizards (wiz1)
-  hebrewToc: 'D:\\priority\\tmp\\chm_extract_wiz1\\WIZ1.hhc',
-  hebrewDir: 'D:\\priority\\tmp\\chm_extract_wiz1',
+  // Hebrew wizards (wiz1) — env vars override defaults for Docker
+  hebrewToc: process.env.WIZ1_HHC || 'D:\\priority\\tmp\\chm_extract_wiz1\\WIZ1.hhc',
+  hebrewDir: process.env.WIZ1_DIR || 'D:\\priority\\tmp\\chm_extract_wiz1',
   // English wizards (wiz3)
-  englishToc: 'D:\\priority\\tmp\\chm_extract_wiz3\\WIZ3.hhc',
-  englishDir: 'D:\\priority\\tmp\\chm_extract_wiz3',
+  englishToc: process.env.WIZ3_HHC || 'D:\\priority\\tmp\\chm_extract_wiz3\\WIZ3.hhc',
+  englishDir: process.env.WIZ3_DIR || 'D:\\priority\\tmp\\chm_extract_wiz3',
 };
 
 // ─── Load wizards at startup ─────────────────────────────────────
@@ -441,6 +441,23 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     case 'wizard_search': {
       const { query, language } = args;
+      
+      // Auto-detect Hebrew queries and use dual-language search
+      if (hasHebrew(query)) {
+        const results = searchWizardsHebrew(query, heWizards, enWizards, [CONFIG.hebrewDir, CONFIG.englishDir]);
+        return {
+          content: [{
+            type: 'text',
+            text: JSON.stringify({
+              query,
+              count: results.length,
+              results: results.slice(0, 50)
+            }, null, 2)
+          }]
+        };
+      }
+      
+      // Original behavior for English queries
       let source = allWizards;
       if (language === 'he') source = heWizards;
       if (language === 'en') source = enWizards;
