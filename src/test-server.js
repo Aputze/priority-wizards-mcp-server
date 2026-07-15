@@ -2,9 +2,10 @@
  * Quick test of the MCP server via STDIO JSON-RPC.
  */
 const { spawn } = require('child_process');
+const path = require('path');
 
 const serverProcess = spawn('node', ['src/index.js'], {
-  cwd: __dirname,
+  cwd: path.join(__dirname, '..'),
   stdio: ['pipe', 'pipe', 'pipe']
 });
 

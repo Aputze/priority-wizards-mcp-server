@@ -12,9 +12,17 @@
  *   wizard_list              — List all wizards with metadata
  *   wizard_search(query)     — Search across all wizard content
  *   wizard_get(name)         — Get full wizard content
+ *
+ * Transports:
+ *   node src/index.js         — STDIO (Cursor)
+ *   node src/index.js --http  — HTTP Streamable (Jeen / Docker)
  */
+require('dotenv').config({
+  path: require('path').resolve(__dirname, '..', '.env'),
+  quiet: true
+});
+
 const { Server } = require('@modelcontextprotocol/sdk/server/index.js');
-const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
 const {
   ListToolsRequestSchema,
   CallToolRequestSchema,
@@ -29,12 +37,12 @@ const { readPage, searchWizards, searchWizardsHebrew, hasHebrew } = require('./w
 
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
-  // Hebrew wizards (wiz1) — env vars override defaults for Docker
   hebrewToc: process.env.WIZ1_HHC || 'D:\\priority\\tmp\\chm_extract_wiz1\\WIZ1.hhc',
   hebrewDir: process.env.WIZ1_DIR || 'D:\\priority\\tmp\\chm_extract_wiz1',
-  // English wizards (wiz3)
   englishToc: process.env.WIZ3_HHC || 'D:\\priority\\tmp\\chm_extract_wiz3\\WIZ3.hhc',
   englishDir: process.env.WIZ3_DIR || 'D:\\priority\\tmp\\chm_extract_wiz3',
+  port: parseInt(process.env.PORT || '3040', 10),
+  host: process.env.HOST || '0.0.0.0',
 };
 
 // ─── Load wizards at startup ─────────────────────────────────────
@@ -45,6 +53,7 @@ const heWizards = buildWizardList(heTree, CONFIG.hebrewDir);
 const enWizards = buildWizardList(enTree, CONFIG.englishDir);
 const allWizards = [...heWizards, ...enWizards];
 console.error(`[Wizards MCP] Loaded ${heWizards.length} Hebrew + ${enWizards.length} English = ${allWizards.length} total wizards`);
+console.error(`[Wizards MCP] Paths: WIZ1_DIR=${CONFIG.hebrewDir} WIZ3_DIR=${CONFIG.englishDir}`);
 
 // Build lookups
 // English wizards loaded FIRST so ENTITY_WIZARD_MAP (built from English wizards) takes priority on filename collisions
@@ -163,16 +172,17 @@ for (const entry of ENTITY_WIZARD_MAP) {
 }
 console.error(`[Wizards MCP] Loaded ${ENTITY_WIZARD_MAP.length} entity→wizard mappings`);
 
-// ─── MCP Server ──────────────────────────────────────────────────
-const server = new Server({
-  name: 'priority-wizards-mcp',
-  version: '1.0.0'
-}, {
-  capabilities: {
-    tools: {},
-    resources: {}
-  }
-});
+// ─── MCP Server factory (new instance per STDIO process / HTTP request) ──
+function createServer() {
+  const server = new Server({
+    name: 'priority-wizards-mcp',
+    version: '1.0.0'
+  }, {
+    capabilities: {
+      tools: {},
+      resources: {}
+    }
+  });
 
 // ─── Resources ───────────────────────────────────────────────────
 const RESOURCE_URI_PREFIX = 'wizard://';
@@ -457,12 +467,17 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
         };
       }
       
-      // Original behavior for English queries
-      let source = allWizards;
-      if (language === 'he') source = heWizards;
-      if (language === 'en') source = enWizards;
+      // Search ALL wizards for maximum recall (token-based matching), then post-filter by language
+      let results = searchWizards(allWizards, query, [CONFIG.hebrewDir, CONFIG.englishDir]);
       
-      const results = searchWizards(source, query, [CONFIG.hebrewDir, CONFIG.englishDir]);
+      // Apply language post-filter — keep only results whose wizard title exists in the target language set
+      if (language === 'en') {
+        const enTitles = new Set(enWizards.map(w => w.title));
+        results = results.filter(r => enTitles.has(r.title));
+      } else if (language === 'he') {
+        const heTitles = new Set(heWizards.map(w => w.title));
+        results = results.filter(r => heTitles.has(r.title));
+      }
       
       return {
         content: [{
@@ -568,7 +583,10 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
-});
+  });
+
+  return server;
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────
 function formatWizardText(wizard, baseDir) {
@@ -592,9 +610,68 @@ function formatWizardText(wizard, baseDir) {
 
 // ─── Start ───────────────────────────────────────────────────────
 async function main() {
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
-  console.error('[Wizards MCP] Server running on STDIO');
+  const useHttp = process.argv.includes('--http');
+
+  if (useHttp) {
+    const express = require('express');
+    const { StreamableHTTPServerTransport } = require('@modelcontextprotocol/sdk/server/streamableHttp.js');
+
+    const app = express();
+    app.use(express.json({ limit: '4mb' }));
+
+    app.get('/health', (_req, res) => {
+      res.json({
+        status: 'ok',
+        server: 'priority-wizards-mcp',
+        wizards: { hebrew: heWizards.length, english: enWizards.length }
+      });
+    });
+
+    // Stateless Streamable HTTP — new server + transport per request (SDK pattern)
+    app.post('/mcp', async (req, res) => {
+      const mcpServer = createServer();
+      try {
+        const transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined
+        });
+        await mcpServer.connect(transport);
+        await transport.handleRequest(req, res, req.body);
+        res.on('close', () => {
+          transport.close();
+          mcpServer.close();
+        });
+      } catch (error) {
+        console.error('[Wizards MCP] Error handling MCP request:', error);
+        if (!res.headersSent) {
+          res.status(500).json({
+            jsonrpc: '2.0',
+            error: { code: -32603, message: 'Internal server error' },
+            id: null
+          });
+        }
+      }
+    });
+
+    app.get('/mcp', (_req, res) => {
+      res.status(405).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed.' },
+        id: null
+      });
+    });
+
+    app.listen(CONFIG.port, CONFIG.host, () => {
+      console.error(`[Wizards MCP] HTTP server running on http://${CONFIG.host}:${CONFIG.port}`);
+      console.error(`[Wizards MCP] Health: http://${CONFIG.host}:${CONFIG.port}/health`);
+      console.error(`[Wizards MCP] MCP endpoint: http://${CONFIG.host}:${CONFIG.port}/mcp`);
+    });
+  } else {
+    const { StdioServerTransport } = require('@modelcontextprotocol/sdk/server/stdio.js');
+    const server = createServer();
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+    console.error('[Wizards MCP] Server running on STDIO');
+  }
 }
 
 main().catch(err => {

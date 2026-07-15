@@ -6,9 +6,16 @@
   "main": "src/index.js",
   "scripts": {
     "start": "node src/index.js",
-    "test": "node src/test.js"
+    "start:http": "node src/index.js --http",
+    "test": "node src/test-server.js",
+    "docker:build": "docker compose build",
+    "docker:up": "docker compose up -d --build",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f wizards-mcp"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.24.3"
+    "@modelcontextprotocol/sdk": "^1.24.3",
+    "dotenv": "^17.4.2",
+    "express": "^5.2.1"
   }
 }

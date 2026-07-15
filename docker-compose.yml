@@ -1,0 +1,43 @@
+# Docker Compose — Priority Wizards MCP (HTTP)
+#
+# Host CHM extracts are mounted read-only into the container.
+# Override host paths via .env (recommended) or environment:
+#   WIZ1_HOST_DIR=D:/priority/tmp/chm_extract_wiz1
+#   WIZ3_HOST_DIR=D:/priority/tmp/chm_extract_wiz3
+
+services:
+  wizards-mcp:
+    build: .
+    container_name: priority-wizards-mcp
+    ports:
+      - "${PORT:-3040}:3040"
+    environment:
+      PORT: "3040"
+      HOST: "0.0.0.0"
+      # Paths inside the container (fixed; do not use Windows host paths here)
+      WIZ1_DIR: /data/wiz1
+      WIZ1_HHC: /data/wiz1/WIZ1.hhc
+      WIZ3_DIR: /data/wiz3
+      WIZ3_HHC: /data/wiz3/WIZ3.hhc
+    volumes:
+      - type: bind
+        source: ${WIZ1_HOST_DIR:-D:/priority/tmp/chm_extract_wiz1}
+        target: /data/wiz1
+        read_only: true
+      - type: bind
+        source: ${WIZ3_HOST_DIR:-D:/priority/tmp/chm_extract_wiz3}
+        target: /data/wiz3
+        read_only: true
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:3040/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s

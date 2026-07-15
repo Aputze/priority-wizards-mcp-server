@@ -58,19 +58,63 @@ function getWizardText(wizard, baseDir) {
 }
 
 /**
- * Search across all wizard content.
+ * Tokenize a string into lowercase non-empty words.
+ */
+function tokenize(text) {
+  return text.toLowerCase().split(/[\s,;:.!?()\[\]{}"'/\\|_\-+*=<>«»]+/).filter(Boolean);
+}
+
+/**
+ * Check whether every token in `queryTokens` finds a meaningful match
+ * in `targetTokens`. A token matches if:
+ *   - it is a substring of a target token, OR
+ *   - a target token is a substring of it, OR
+ *   - they share a common prefix >= 3 characters
+ */
+function tokensMatch(queryTokens, targetTokens) {
+  if (queryTokens.length === 0) return false;
+  for (const qt of queryTokens) {
+    if (!targetTokens.some(tt =>
+      tt.includes(qt) || qt.includes(tt) || commonPrefixLen(qt, tt) >= 3
+    )) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Search across all wizard content using token-based matching.
+ *
+ * Matching strategy:
+ *   - Title: all query tokens must match title tokens (AND logic)
+ *   - Content (first page): the full query as a substring is checked first;
+ *     if that fails, each token is checked individually (any token match).
  */
 function searchWizards(wizards, query, baseDirs) {
   const q = query.toLowerCase();
+  const queryTokens = tokenize(query);
   const results = [];
   
   for (const wiz of wizards) {
-    // Search title
-    const titleMatch = wiz.title.toLowerCase().includes(q);
+    const titleTokens = tokenize(wiz.title);
     
-    // Search first page content
+    // Title match: all query tokens must match title tokens
+    const titleMatch = queryTokens.length > 0 && tokensMatch(queryTokens, titleTokens);
+    
+    // Content match (first page)
     const firstPage = readPage(wiz.pages[0]?.file);
-    const contentMatch = firstPage && firstPage.content.toLowerCase().includes(q);
+    let contentMatch = false;
+    if (firstPage) {
+      const contentLower = firstPage.content.toLowerCase();
+      // Full substring check (exact phrase preferred)
+      if (contentLower.includes(q)) {
+        contentMatch = true;
+      } else if (queryTokens.length > 1) {
+        // Multi-token: check if any single token appears in content
+        contentMatch = queryTokens.some(t => contentLower.includes(t));
+      }
+    }
     
     if (titleMatch || contentMatch) {
       results.push({
@@ -195,10 +239,10 @@ function searchWizardsHebrew(query, heWizards, enWizards, baseDirs) {
   const enResults = [];
 
   if (enQuery) {
-    const enKeywords = enQuery.toLowerCase().split(/\s+/).filter(Boolean);
+    const enKeywordTokens = tokenize(enQuery);
     for (const wiz of enWizards) {
-      const titleLower = wiz.title.toLowerCase();
-      if (enKeywords.some(kw => titleLower.includes(kw))) {
+      const titleTokens = tokenize(wiz.title);
+      if (tokensMatch(enKeywordTokens, titleTokens)) {
         enResults.push({
           title: wiz.title,
           category: wiz.category,
