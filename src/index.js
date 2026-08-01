@@ -33,7 +33,7 @@ const {
 
 const path = require('path');
 const { parseToc, buildWizardList } = require('./wizard-toc-parser');
-const { readPage, searchWizards, searchWizardsHebrew, hasHebrew } = require('./wizard-content-reader');
+const { readPage, searchWizards, searchWizardsHebrew, hasHebrew, tokenize, tokensMatch } = require('./wizard-content-reader');
 
 // ─── Configuration ───────────────────────────────────────────────
 const CONFIG = {
@@ -41,14 +41,28 @@ const CONFIG = {
   hebrewDir: process.env.WIZ1_DIR || 'D:\\priority\\tmp\\chm_extract_wiz1',
   englishToc: process.env.WIZ3_HHC || 'D:\\priority\\tmp\\chm_extract_wiz3\\WIZ3.hhc',
   englishDir: process.env.WIZ3_DIR || 'D:\\priority\\tmp\\chm_extract_wiz3',
-  port: parseInt(process.env.PORT || '3040', 10),
+  port: parseInt(process.env.PORT || '3002', 10),
   host: process.env.HOST || '0.0.0.0',
+  apiKey: process.env.API_KEY || null,
 };
 
 // ─── Load wizards at startup ─────────────────────────────────────
 console.error('[Wizards MCP] Loading wizard indexes...');
-const heTree = parseToc(CONFIG.hebrewToc);
-const enTree = parseToc(CONFIG.englishToc);
+let heTree, enTree;
+try {
+  heTree = parseToc(CONFIG.hebrewToc);
+} catch (e) {
+  console.error(`[Wizards MCP] FATAL: Cannot load Hebrew TOC from "${CONFIG.hebrewToc}"`);
+  console.error(`[Wizards MCP] Set WIZ1_HHC in .env to the correct path. Error: ${e.message}`);
+  process.exit(1);
+}
+try {
+  enTree = parseToc(CONFIG.englishToc);
+} catch (e) {
+  console.error(`[Wizards MCP] FATAL: Cannot load English TOC from "${CONFIG.englishToc}"`);
+  console.error(`[Wizards MCP] Set WIZ3_HHC in .env to the correct path. Error: ${e.message}`);
+  process.exit(1);
+}
 const heWizards = buildWizardList(heTree, CONFIG.hebrewDir);
 const enWizards = buildWizardList(enTree, CONFIG.englishDir);
 const allWizards = [...heWizards, ...enWizards];
@@ -93,8 +107,8 @@ const ENTITY_WIZARD_MAP = [
   {"entity":"DOCUMENTS_D","title":"Customer Shipment/Return Wizard","file":"63000.htm","relevance":"high","context":"customer shipment documents, delivery vouchers"},
   {"entity":"DOCUMENTS_P","title":"Receipt of Goods Wizard","file":"51030.htm","relevance":"high","context":"goods receipt documents, supplier receipts"},
   {"entity":"DOCUMENTS_T","title":"Warehouse Transfers Wizard","file":"64000.htm","relevance":"high","context":"warehouse transfer documents, stock transfers"},
-  {"entity":"SERIAL","title":"Serial Numbers Wizard","file":"20190.htm","relevance":"high","context":"serial numbers, batch numbers, lot tracking"},
-  {"entity":"SERIALZOOM","title":"Serial Numbers Wizard","file":"20190.htm","relevance":"medium","context":"serial numbers extended view, batch/lot details"},
+  {"entity":"SERIAL","title":"Work Orders Wizard","file":"51050.htm","relevance":"high","context":"production work orders (פקודות עבודה / פקע\"ות), kit list, routing, production reporting, release, close"},
+  {"entity":"SERIALZOOM","title":"Work Orders Wizard","file":"51050.htm","relevance":"medium","context":"work orders zoom view, production status overview"},
   {"entity":"BANKS","title":"Set Up Bank Accounts Wizard","file":"20560.htm","relevance":"high","context":"bank setup, bank account configuration"},
   {"entity":"BANKBRANCHES","title":"Set Up Bank Accounts Wizard","file":"20560.htm","relevance":"medium","context":"bank branch setup, branch codes"},
   {"entity":"BANKACCTYPES","title":"Set Up Bank Accounts Wizard","file":"20560.htm","relevance":"medium","context":"bank account type definitions"},
@@ -125,8 +139,8 @@ const ENTITY_WIZARD_MAP = [
   {"entity":"CUSTNOTESA","title":"To Do List/Calendar Wizard","file":"90000.htm","relevance":"medium","context":"customer notes, task journal, to-do items"},
   {"entity":"FAMILY_LOG","title":"Set Up Accounting Families Wizard","file":"20480.htm","relevance":"high","context":"accounting families, product families"},
   {"entity":"FIXEDASSETS","title":"Fixed Assets Wizard","file":"40100.htm","relevance":"high","context":"fixed assets, depreciation, asset management"},
-  {"entity":"LOGFILE","title":"Serial Numbers Wizard","file":"20190.htm","relevance":"medium","context":"inventory transaction log, stock movements"},
-  {"entity":"LOGPART","title":"Serial Numbers Wizard","file":"20190.htm","relevance":"medium","context":"part history card, item ledger entries"},
+  {"entity":"LOGFILE","title":"Part Definition Wizard","file":"70007.htm","relevance":"medium","context":"inventory movement log (לוג תנועות מלאי), stock transaction history across all items"},
+  {"entity":"LOGPART","title":"Part Definition Wizard","file":"70007.htm","relevance":"high","context":"item card (כרטיס פריט), per-part ledger showing all stock movements and balances"},
   {"entity":"PURDEMANDS","title":"Purchase Planning Wizard","file":"51200.htm","relevance":"high","context":"purchase demands, consolidated procurement requirements"},
   {"entity":"PRDISINGLE","title":"Purchase Planning Wizard","file":"51200.htm","relevance":"high","context":"purchase requisitions, single procurement requests"},
   {"entity":"PURTAXES","title":"Taxes Wizard","file":"1301.htm","relevance":"medium","context":"purchase tax codes, input VAT codes"},
@@ -156,13 +170,12 @@ const ENTITY_WIZARD_MAP = [
   {"entity":"NCATALOG","title":"Report Generators Wizard","file":"2000.htm","relevance":"low","context":"table catalog, table definition tool"},
   {"entity":"NCATALOGC","title":"Report Generators Wizard","file":"2000.htm","relevance":"low","context":"column catalog, table column definitions"},
   {"entity":"NCOLUMNSC","title":"Report Generators Wizard","file":"2000.htm","relevance":"low","context":"column definitions, column properties"},
-  {"entity":"LOGCATALOG","title":"Report Generators Wizard","file":"2000.htm","relevance":"low","context":"log catalog, system log table definitions"},
   {"entity":"SALARYCONST","title":"Personnel Setup Wizard","file":"20770.htm","relevance":"medium","context":"salary constants, payroll configuration"},
   {"entity":"PDPROFTEXTHEADER","title":"Price Quotations Wizard","file":"70001.htm","relevance":"medium","context":"price quotation text templates, proposal text"},
   {"entity":"EXPFILES","title":"Report Generators Wizard","file":"2000.htm","relevance":"low","context":"export file definitions, data export setup"},
   {"entity":"FORMPREPERRS","title":"Warning Messages Wizard","file":"20620.htm","relevance":"low","context":"form preparation errors and warnings"},
   {"entity":"MENU","title":"Warning Messages Wizard","file":"20620.htm","relevance":"low","context":"menu execution log, menu runs"},
-  {"entity":"PROGMAILBODY","title":"Set Up Financial Documents Wizard","file":"2601.htm","relevance":"low","context":"mail body text templates for documents"}
+  {"entity":"PROGMAILBODY","title":"Set Up Financial Documents Wizard","file":"2601.htm","relevance":"low","context":"mail body text templates for documents"},
 ];
 
 // Build entity lookup (entity → map entry)
@@ -434,8 +447,8 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       }));
       
       if (args.search) {
-        const q = args.search.toLowerCase();
-        results = results.filter(r => r.title.toLowerCase().includes(q));
+        const qTokens = tokenize(args.search);
+        results = results.filter(r => tokensMatch(qTokens, tokenize(r.title)));
       }
       
       return {
@@ -507,8 +520,9 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       const upper = (entity || '').toUpperCase();
       const match = entityMapLookup.get(upper);
       if (!match) {
-        // Try partial match
-        const partial = ENTITY_WIZARD_MAP.filter(e => e.entity.includes(upper) || upper.includes(e.entity));
+        // Try partial match — only match if the stored entity name contains the query prefix,
+        // NOT the reverse (e.g. "WORDERS" must not match stored "ORDERS")
+        const partial = ENTITY_WIZARD_MAP.filter(e => e.entity.includes(upper));
         if (partial.length === 0) {
           return {
             content: [{
@@ -627,6 +641,16 @@ async function main() {
       });
     });
 
+    // Optional bearer-token auth — enabled when API_KEY env var is set
+    if (CONFIG.apiKey) {
+      console.error('[Wizards MCP] API_KEY is set — HTTP endpoint requires Authorization: Bearer <key>');
+      app.use('/mcp', (req, res, next) => {
+        const auth = req.headers['authorization'] || '';
+        if (auth === `Bearer ${CONFIG.apiKey}`) return next();
+        res.status(401).json({ jsonrpc: '2.0', error: { code: -32001, message: 'Unauthorized' }, id: null });
+      });
+    }
+
     // Stateless Streamable HTTP — new server + transport per request (SDK pattern)
     app.post('/mcp', async (req, res) => {
       const mcpServer = createServer();
@@ -653,6 +677,14 @@ async function main() {
     });
 
     app.get('/mcp', (_req, res) => {
+      res.status(405).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Method not allowed.' },
+        id: null
+      });
+    });
+
+    app.delete('/mcp', (_req, res) => {
       res.status(405).json({
         jsonrpc: '2.0',
         error: { code: -32000, message: 'Method not allowed.' },

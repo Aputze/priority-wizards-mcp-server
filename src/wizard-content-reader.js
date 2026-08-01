@@ -4,11 +4,15 @@
 const fs = require('fs');
 const path = require('path');
 
+// Static content cache — wizard HTML files never change at runtime
+const pageCache = new Map();
+
 /**
  * Read a wizard page HTML file and extract meaningful text content.
  * Strips HTML tags, styles, scripts, and navigation elements.
  */
 function readPage(filePath) {
+  if (pageCache.has(filePath)) return pageCache.get(filePath);
   if (!fs.existsSync(filePath)) return null;
   const html = fs.readFileSync(filePath, 'utf-8');
   
@@ -28,17 +32,32 @@ function readPage(filePath) {
   text = text.replace(/<object[\s\S]*?<\/object>/gi, '');
   // Remove style blocks
   text = text.replace(/<style[\s\S]*?<\/style>/gi, '');
-  // Remove HTML tags
+  // Mark paragraph boundaries before stripping tags (placeholders survive whitespace collapse)
+  const PARA = '\u0001';
+  const BR = '\u0002';
+  text = text.replace(/<\/p>/gi, PARA);
+  text = text.replace(/<\/div>/gi, PARA);
+  text = text.replace(/<br\s*\/?>/gi, BR);
+  // Remove remaining HTML tags
   text = text.replace(/<[^>]*>/g, ' ');
-  // Remove multiple spaces/newlines
+  // Decode common entities
   text = text.replace(/&nbsp;/gi, ' ');
   text = text.replace(/&amp;/gi, '&');
   text = text.replace(/&lt;/gi, '<');
   text = text.replace(/&gt;/gi, '>');
   text = text.replace(/&quot;/gi, '"');
+  // Collapse ALL whitespace (including incidental HTML newlines) to single spaces
   text = text.replace(/\s+/g, ' ').trim();
+  // Restore paragraph breaks: blank line between paragraphs, single break for <br>
+  text = text.replace(new RegExp(` *${PARA} *`, 'g'), '\n\n');
+  text = text.replace(new RegExp(` *${BR} *`, 'g'), '\n');
+  // Collapse consecutive newlines to at most one blank line
+  text = text.replace(/\n{3,}/g, '\n\n');
+  text = text.trim();
   
-  return { title, content: text, raw: html };
+  const result = { title, content: text, raw: html };
+  pageCache.set(filePath, result);
+  return result;
 }
 
 /**
@@ -281,4 +300,4 @@ function searchWizardsHebrew(query, heWizards, enWizards, baseDirs) {
   return merged;
 }
 
-module.exports = { readPage, getWizardText, searchWizards, searchWizardsHebrew, hasHebrew };
+module.exports = { readPage, getWizardText, searchWizards, searchWizardsHebrew, hasHebrew, tokenize, tokensMatch };

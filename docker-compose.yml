@@ -10,9 +10,9 @@ services:
     build: .
     container_name: priority-wizards-mcp
     ports:
-      - "${PORT:-3040}:3040"
+      - "${PORT:-3002}:3002"
     environment:
-      PORT: "3040"
+      PORT: "3002"
       HOST: "0.0.0.0"
       # Paths inside the container (fixed; do not use Windows host paths here)
       WIZ1_DIR: /data/wiz1
@@ -35,7 +35,7 @@ services:
           "CMD",
           "node",
           "-e",
-          "fetch('http://127.0.0.1:3040/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+          "fetch('http://127.0.0.1:3002/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
         ]
       interval: 30s
       timeout: 5s

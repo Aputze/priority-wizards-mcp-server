@@ -49,7 +49,7 @@ cp .env.example .env
 | `WIZ1_DIR` | `D:\priority\tmp\chm_extract_wiz1` | Hebrew HTML directory |
 | `WIZ3_HHC` | `D:\priority\tmp\chm_extract_wiz3\WIZ3.hhc` | English TOC file |
 | `WIZ3_DIR` | `D:\priority\tmp\chm_extract_wiz3` | English HTML directory |
-| `PORT` | `3040` | HTTP listen port |
+| `PORT` | `3002` | HTTP listen port |
 | `HOST` | `0.0.0.0` | HTTP listen host |
 
 ## Running
@@ -77,7 +77,7 @@ Wizard HTML stays on the host and is mounted read-only into the container.
 ```env
 WIZ1_HOST_DIR=D:/priority/tmp/chm_extract_wiz1
 WIZ3_HOST_DIR=D:/priority/tmp/chm_extract_wiz3
-PORT=3040
+PORT=3002
 ```
 
 2. Build and start:
@@ -90,7 +90,7 @@ npm run docker:up
 3. Check:
 
 ```bash
-curl http://localhost:3040/health
+curl http://localhost:3002/health
 docker compose logs -f wizards-mcp
 ```
 
@@ -114,7 +114,7 @@ Endpoints:
 | `POST` | `/mcp` | MCP Streamable HTTP endpoint |
 
 ```bash
-curl http://localhost:3040/health
+curl http://localhost:3002/health
 ```
 
 ## MCP Interface
@@ -167,7 +167,7 @@ curl http://localhost:3040/health
 cd priority-wizards-mcp-server
 npm install
 npm start              # STDIO mode (Cursor)
-npm run start:http     # HTTP mode on PORT (default 3040)
+npm run start:http     # HTTP mode on PORT (default 3002)
 npm run docker:up      # Docker HTTP on PORT
 npm test               # Integration tests
 ```
