@@ -158,7 +158,7 @@ function tokensMatch(queryTokens, targetTokens) {
   if (queryTokens.length === 0) return false;
   for (const qt of queryTokens) {
     if (!targetTokens.some(tt =>
-      tt.includes(qt) || (tt.length >= 3 && qt.includes(tt)) || commonPrefixLen(qt, tt) >= 3
+      tt.includes(qt) || (tt.length >= 3 && qt.includes(tt)) || commonPrefixLen(qt, tt) >= 4
     )) {
       return false;
     }

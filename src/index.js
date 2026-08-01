@@ -176,6 +176,11 @@ const ENTITY_WIZARD_MAP = [
   {"entity":"FORMPREPERRS","title":"Warning Messages Wizard","file":"20620.htm","relevance":"low","context":"form preparation errors and warnings"},
   {"entity":"MENU","title":"Warning Messages Wizard","file":"20620.htm","relevance":"low","context":"menu execution log, menu runs"},
   {"entity":"PROGMAILBODY","title":"Set Up Financial Documents Wizard","file":"2601.htm","relevance":"low","context":"mail body text templates for documents"},
+  {"entity":"CPROF","title":"Price Quotations Wizard","file":"70001.htm","relevance":"high","context":"customer price quotations, sales quotes, quote management"},
+  {"entity":"WARHSBAL","title":"Inventory Count Wizard","file":"20600.htm","relevance":"medium","context":"warehouse balances, stock levels by warehouse (יתרות במחסן)"},
+  {"entity":"PARTBALANCE","title":"Part Definition Wizard","file":"70007.htm","relevance":"medium","context":"inventory balance per part, per-part stock levels (מלאי למוצר)"},
+  {"entity":"IVORD","title":"Customer Invoices Wizard","file":"82000.htm","relevance":"medium","context":"orders for invoice, billing orders (הזמנות לחשבונית)"},
+  {"entity":"USERSB","title":"Employee Wizard","file":"20810.htm","relevance":"high","context":"employee card, employee record (כרטיס עובד)"},
 ];
 
 // Build entity lookup (entity → map entry)
