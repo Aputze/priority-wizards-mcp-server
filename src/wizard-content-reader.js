@@ -213,6 +213,7 @@ function searchWizards(wizards, query, baseDirs) {
     }
 
     // Search every page
+    let snippetPage = undefined;
     for (let pi = 0; pi < wiz.pages.length; pi++) {
       const page = readPage(wiz.pages[pi]?.file);
       if (!page) continue;
@@ -223,28 +224,32 @@ function searchWizards(wizards, query, baseDirs) {
       if (contentLower.includes(q)) {
         score += phraseBonus;
         if (!matchType) matchType = 'content';
-        if (!snippet) snippet = extractSnippet(page.content, queryTokens);
+        if (!snippet) { snippet = extractSnippet(page.content, queryTokens); snippetPage = page.title; }
       } else if (queryTokens.length > 1 && queryTokens.some(t => contentLower.includes(t))) {
         score += tokenBonus;
         if (!matchType) matchType = 'content';
-        if (!snippet) snippet = extractSnippet(page.content, queryTokens);
+        if (!snippet) { snippet = extractSnippet(page.content, queryTokens); snippetPage = page.title; }
       }
     }
 
     if (score > 0) {
+      const pageCount = wiz.pages.length;
+      const normalizedScore = score / Math.log2(pageCount + 1);
       results.push({
         title: wiz.title,
         category: wiz.category,
         score,
+        normalizedScore: Math.round(normalizedScore * 100) / 100,
         matchType,
         snippet,
+        snippetPage,
         startFile: path.basename(wiz.pages[0]?.file || ''),
-        pageCount: wiz.pages.length
+        pageCount
       });
     }
   }
 
-  results.sort((a, b) => b.score - a.score);
+  results.sort((a, b) => b.normalizedScore - a.normalizedScore);
   return results;
 }
 

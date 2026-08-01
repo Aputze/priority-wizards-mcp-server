@@ -379,7 +379,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: 'wizard_search',
-      description: 'Search across all wizard titles and content for a query string.',
+      description: 'Search across all wizard titles and content for a query string. Results are ranked by normalized relevance score (score per page, so large wizards don\'t dominate). Supports pagination via limit/offset.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -391,6 +391,17 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: 'string',
             description: 'Optional language filter: "en" or "he"',
             enum: ['en', 'he']
+          },
+          limit: {
+            type: 'integer',
+            description: 'Maximum number of results to return (default: 20)',
+            minimum: 1,
+            maximum: 100
+          },
+          offset: {
+            type: 'integer',
+            description: 'Number of results to skip for pagination (default: 0)',
+            minimum: 0
           }
         },
         required: ['query']
@@ -413,6 +424,30 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           }
         },
         required: ['identifier']
+      }
+    },
+    {
+      name: 'wizard_get_page',
+      description: 'Get a single page from a wizard by index. Use this instead of wizard_get when you only need one specific page, to avoid loading an entire multi-page wizard.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          identifier: {
+            type: 'string',
+            description: 'Wizard title (exact match) or start filename (e.g. "68000.htm")'
+          },
+          page: {
+            type: 'integer',
+            description: '0-based page index within the wizard',
+            minimum: 0
+          },
+          language: {
+            type: 'string',
+            description: 'Optional language hint: "en" or "he"',
+            enum: ['en', 'he']
+          }
+        },
+        required: ['identifier', 'page']
       }
     },
     {
@@ -469,41 +504,51 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
     
     case 'wizard_search': {
       const { query, language } = args;
-      
+      const limit = args.limit ?? 20;
+      const offset = args.offset ?? 0;
+
       // Auto-detect Hebrew queries and use dual-language search
       if (hasHebrew(query)) {
-        const results = searchWizardsHebrew(query, heWizards, enWizards, [CONFIG.hebrewDir, CONFIG.englishDir]);
+        const allResults = searchWizardsHebrew(query, heWizards, enWizards, [CONFIG.hebrewDir, CONFIG.englishDir]);
+        const page = allResults.slice(offset, offset + limit);
         return {
           content: [{
             type: 'text',
             text: JSON.stringify({
               query,
-              count: results.length,
-              results: results.slice(0, 50)
+              total: allResults.length,
+              offset,
+              limit,
+              count: page.length,
+              results: page
             }, null, 2)
           }]
         };
       }
-      
+
       // Search ALL wizards for maximum recall (token-based matching), then post-filter by language
-      let results = searchWizards(allWizards, query, [CONFIG.hebrewDir, CONFIG.englishDir]);
-      
+      let allResults = searchWizards(allWizards, query, [CONFIG.hebrewDir, CONFIG.englishDir]);
+
       // Apply language post-filter — keep only results whose wizard title exists in the target language set
       if (language === 'en') {
         const enTitles = new Set(enWizards.map(w => w.title));
-        results = results.filter(r => enTitles.has(r.title));
+        allResults = allResults.filter(r => enTitles.has(r.title));
       } else if (language === 'he') {
         const heTitles = new Set(heWizards.map(w => w.title));
-        results = results.filter(r => heTitles.has(r.title));
+        allResults = allResults.filter(r => heTitles.has(r.title));
       }
-      
+
+      const page = allResults.slice(offset, offset + limit);
       return {
         content: [{
           type: 'text',
           text: JSON.stringify({
             query,
-            count: results.length,
-            results: results.slice(0, 50)
+            total: allResults.length,
+            offset,
+            limit,
+            count: page.length,
+            results: page
           }, null, 2)
         }]
       };
@@ -599,6 +644,47 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
       };
     }
     
+    case 'wizard_get_page': {
+      const { identifier, page: pageIndex, language } = args;
+      const id = identifier.toLowerCase();
+
+      // Resolve wizard (same logic as wizard_get)
+      let wizard = wizByFile.get(id);
+      if (!wizard) {
+        let source = allWizards;
+        if (language === 'he') source = heWizards;
+        if (language === 'en') source = enWizards;
+        wizard = source.find(w => w.title.toLowerCase() === id);
+        if (!wizard) wizard = source.find(w => w.title.toLowerCase().includes(id));
+      }
+
+      if (!wizard) {
+        throw new Error(`Wizard not found: "${identifier}". Use wizard_list to see available wizards.`);
+      }
+
+      if (pageIndex < 0 || pageIndex >= wizard.pages.length) {
+        throw new Error(`Page index ${pageIndex} out of range. Wizard "${wizard.title}" has ${wizard.pages.length} pages (0–${wizard.pages.length - 1}).`);
+      }
+
+      const data = readPage(wizard.pages[pageIndex].file);
+      if (!data) {
+        throw new Error(`Could not read page ${pageIndex} of wizard "${wizard.title}".`);
+      }
+
+      return {
+        content: [{
+          type: 'text',
+          text: [
+            `# ${wizard.title}`,
+            `Page ${pageIndex} of ${wizard.pages.length - 1}`,
+            '',
+            `## ${data.title}`,
+            data.content
+          ].join('\n')
+        }]
+      };
+    }
+
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -614,16 +700,24 @@ function formatWizardText(wizard, baseDir) {
   if (wizard.category) lines.push(`Category: ${wizard.category}`);
   lines.push(`Pages: ${wizard.pages.length}`);
   lines.push('');
-  
-  for (const page of wizard.pages) {
-    const data = readPage(page.file);
+
+  // Compact page index so the AI can navigate with wizard_get_page
+  lines.push('**Page index** (use wizard_get_page with page=N to read a single page):');
+  for (let i = 0; i < wizard.pages.length; i++) {
+    const pdata = readPage(wizard.pages[i]?.file);
+    lines.push(`[${i}] ${pdata ? pdata.title : wizard.pages[i]?.file || ''}`);
+  }
+  lines.push('');
+
+  for (let i = 0; i < wizard.pages.length; i++) {
+    const data = readPage(wizard.pages[i]?.file);
     if (data) {
-      lines.push(`## ${data.title}`);
+      lines.push(`## [${i}] ${data.title}`);
       lines.push(data.content);
       lines.push('');
     }
   }
-  
+
   return lines.join('\n');
 }
 
